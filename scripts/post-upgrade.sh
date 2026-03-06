@@ -2,13 +2,13 @@
 # =============================================================================
 # post-upgrade.sh — Codyssey Akaunting: Server-side post-upgrade actions
 #
-# Run ON the server after Akaunting is upgraded and all custom files are synced.
-# Handles all non-git customizations + AccountantReports module (re)installation.
+# Run ON the server (as root or sudo) after Akaunting is upgraded.
+# NO git required — uses rsync-synced files + standard Unix patch(1) command.
 #
-# Usage (run as root or sudo):
+# Usage:
 #   sudo bash /var/www/html/akaunting/scripts/post-upgrade.sh
 #
-# Or remotely from the workstation:
+# Or remotely triggered by deploy.sh:
 #   ssh igor@192.168.143.130 "sudo bash /var/www/html/akaunting/scripts/post-upgrade.sh"
 # =============================================================================
 set -Eeuo pipefail
@@ -19,15 +19,16 @@ set -Eeuo pipefail
 REPO_DIR="${REPO_DIR:-/var/www/html/akaunting}"
 WEB_USER="${WEB_USER:-www-data}"
 WEB_GROUP="${WEB_GROUP:-www-data}"
+PATCHES_DIR="$REPO_DIR/scripts/patches"
 
-# Header background color for Default and Modern templates
 THEAD_BG_COLOR="background-color: rgb(85, 88, 139) !important; -webkit-print-color-adjust: exact;"
 
-# Logo
 LOGO_SRC="${LOGO_SRC:-/var/backups/akaunting/public/img/akaunting-logo-green.svg}"
 LOGO_DST_DIR="$REPO_DIR/public/img"
 
-# AccountantReports module
+PLANS_SRC="${PLANS_SRC:-/var/backups/akaunting/app/Traits/Plans.php}"
+PLANS_DST="$REPO_DIR/app/Traits/Plans.php"
+
 MODULE_DIR="$REPO_DIR/modules/AccountantReports"
 MODULE_REINSTALL_SCRIPT="$MODULE_DIR/scripts/clean_reinstall.sh"
 
@@ -37,8 +38,6 @@ MODULE_REINSTALL_SCRIPT="$MODULE_DIR/scripts/clean_reinstall.sh"
 DEFAULT_TPL="$REPO_DIR/resources/views/components/documents/template/default.blade.php"
 MODERN_TPL="$REPO_DIR/resources/views/components/documents/template/modern.blade.php"
 BANK_FEEDS="$REPO_DIR/resources/views/widgets/bank_feeds.blade.php"
-PLANS_SRC="${PLANS_SRC:-/var/backups/akaunting/app/Traits/Plans.php}"
-PLANS_DST="$REPO_DIR/app/Traits/Plans.php"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -50,30 +49,95 @@ section() { echo; echo "=== $* ==="; }
 backup_file() {
   local f="$1"
   [[ -f "$f" ]] || { warn "Skip backup (not found): $f"; return 0; }
-  local ts
-  ts="$(date +%Y%m%d-%H%M%S)"
-  cp -a "$f" "$f.bak.$ts"
-  info "Backed up: $f.bak.$ts"
+  cp -a "$f" "$f.bak.$(date +%Y%m%d-%H%M%S)"
+  info "Backed up: $f"
 }
 
 fix_ownership() {
-  local f="$1"
-  [[ -e "$f" ]] || return 0
-  chown "$WEB_USER:$WEB_GROUP" "$f"
+  [[ -e "$1" ]] && chown "$WEB_USER:$WEB_GROUP" "$1" || true
+}
+
+# Apply a patch file idempotently using the standard Unix patch(1) command.
+# - Skips silently if already applied.
+# - Exits with error if patch fails to apply (file changed too much after upgrade).
+apply_patch() {
+  local patchfile="$1"
+  local label="$2"
+  [[ -f "$patchfile" ]] || { warn "Patch not found: $patchfile — skipping $label"; return 0; }
+
+  cd "$REPO_DIR"
+
+  # Try dry-run forward apply
+  if patch -p1 --dry-run --forward < "$patchfile" &>/dev/null; then
+    backup_file "$(grep '^--- a/' "$patchfile" | head -1 | sed 's|--- a/||')" 2>/dev/null || true
+    patch -p1 --forward < "$patchfile"
+    info "Patch applied: $label"
+  else
+    # Check if it's already applied (reverse would succeed)
+    if patch -p1 --dry-run --reverse < "$patchfile" &>/dev/null; then
+      info "Already applied: $label (skipping)"
+    else
+      echo ""
+      echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+      echo "  PATCH FAILED: $label"
+      echo "  File likely changed in the Akaunting upgrade."
+      echo "  Patch: $patchfile"
+      echo "  Action required: manually apply changes, then regenerate the patch."
+      echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+      echo ""
+      PATCH_FAILURES=$((PATCH_FAILURES + 1))
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
 # Validate
 # ---------------------------------------------------------------------------
-section "Validating"
-
 if [[ ! -d "$REPO_DIR" ]]; then
   echo "ERROR: Akaunting not found at $REPO_DIR"; exit 1
 fi
 cd "$REPO_DIR"
 
+PATCH_FAILURES=0
+
 # ---------------------------------------------------------------------------
-# Step 1: Fix thead background color — Default template
+# Step 1: Apply patches to modified core Akaunting files
+# ---------------------------------------------------------------------------
+section "Applying patches to core files"
+
+apply_patch "$PATCHES_DIR/Documents.patch"      "app/Traits/Documents.php (register Codyssey template)"
+apply_patch "$PATCHES_DIR/settings-lang.patch"  "resources/lang/en-GB/settings.php (Codyssey label)"
+apply_patch "$PATCHES_DIR/show-template.patch"  "resources/views/components/documents/show/template.blade.php (@case codyssey)"
+apply_patch "$PATCHES_DIR/invoice-edit.patch"   "resources/views/settings/invoice/edit.blade.php (Codyssey settings card)"
+
+# Fix ownership of patched files
+for f in \
+  "$REPO_DIR/app/Traits/Documents.php" \
+  "$REPO_DIR/resources/lang/en-GB/settings.php" \
+  "$REPO_DIR/resources/views/components/documents/show/template.blade.php" \
+  "$REPO_DIR/resources/views/settings/invoice/edit.blade.php"; do
+  fix_ownership "$f"
+done
+
+# ---------------------------------------------------------------------------
+# Step 2: Fix ownership of new Codyssey-only files (rsynced by deploy.sh)
+# ---------------------------------------------------------------------------
+section "Fixing ownership of new Codyssey files"
+
+for f in \
+  "$REPO_DIR/app/View/Components/Documents/Template/Codyssey.php" \
+  "$REPO_DIR/public/img/invoice_templates/codyssey.png" \
+  "$REPO_DIR/resources/views/components/documents/template/codyssey.blade.php" \
+  "$REPO_DIR/resources/views/sales/invoices/print_codyssey.blade.php"; do
+  if [[ -f "$f" ]]; then
+    fix_ownership "$f"
+  else
+    warn "File not found (check deploy.sh rsync ran first): $f"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Step 3: Fix thead background color — Default template
 # ---------------------------------------------------------------------------
 section "Fix thead background color (Default template)"
 
@@ -85,11 +149,11 @@ if [[ -f "$DEFAULT_TPL" ]]; then
   fix_ownership "$DEFAULT_TPL"
   info "Default template thead fixed."
 else
-  warn "Default template not found: $DEFAULT_TPL"
+  warn "Not found: $DEFAULT_TPL"
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2: Fix thead background color — Modern template
+# Step 4: Fix thead background color — Modern template
 # ---------------------------------------------------------------------------
 section "Fix thead background color (Modern template)"
 
@@ -101,13 +165,13 @@ if [[ -f "$MODERN_TPL" ]]; then
   fix_ownership "$MODERN_TPL"
   info "Modern template thead fixed."
 else
-  warn "Modern template not found: $MODERN_TPL"
+  warn "Not found: $MODERN_TPL"
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3: Remove Bank Feeds promo widget
+# Step 5: Disable Bank Feeds promo widget
 # ---------------------------------------------------------------------------
-section "Comment Bank Feeds promo widget"
+section "Disable Bank Feeds promo widget"
 
 if [[ -f "$BANK_FEEDS" ]]; then
   backup_file "$BANK_FEEDS"
@@ -129,26 +193,26 @@ if [[ -f "$BANK_FEEDS" ]]; then
   fix_ownership "$BANK_FEEDS"
   info "Bank Feeds promo disabled."
 else
-  warn "bank_feeds.blade.php not found: $BANK_FEEDS"
+  warn "Not found: $BANK_FEEDS"
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4: Copy logo asset
+# Step 6: Copy logo asset
 # ---------------------------------------------------------------------------
 section "Copy logo asset"
 
 if [[ -f "$LOGO_SRC" ]]; then
   cp -f "$LOGO_SRC" "$LOGO_DST_DIR/"
-  local_dst="$LOGO_DST_DIR/$(basename "$LOGO_SRC")"
-  chown "$WEB_USER:$WEB_GROUP" "$local_dst"
-  chmod 644 "$local_dst"
-  info "Logo copied: $local_dst"
+  dst="$LOGO_DST_DIR/$(basename "$LOGO_SRC")"
+  chown "$WEB_USER:$WEB_GROUP" "$dst"
+  chmod 644 "$dst"
+  info "Logo copied: $dst"
 else
-  warn "Logo source not found: $LOGO_SRC — skipping"
+  warn "Logo source not found: $LOGO_SRC — skipping. Copy manually to $LOGO_DST_DIR/"
 fi
 
 # ---------------------------------------------------------------------------
-# Step 5: Restore Plans.php (unlimited plan limits)
+# Step 7: Restore Plans.php (unlimited plan limits)
 # ---------------------------------------------------------------------------
 section "Restore Plans.php (unlimited plan limits)"
 
@@ -156,54 +220,26 @@ if [[ -f "$PLANS_SRC" ]]; then
   backup_file "$PLANS_DST"
   cp -f "$PLANS_SRC" "$PLANS_DST"
   fix_ownership "$PLANS_DST"
-  info "Plans.php restored from backup."
+  info "Plans.php restored."
 else
   warn "Plans.php backup not found: $PLANS_SRC — skipping. Verify app/Traits/Plans.php manually."
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: Fix ownership of synced Codyssey template files
-# ---------------------------------------------------------------------------
-section "Fix ownership of Codyssey template files"
-
-CODYSSEY_FILES=(
-  "$REPO_DIR/app/Traits/Documents.php"
-  "$REPO_DIR/app/View/Components/Documents/Template/Codyssey.php"
-  "$REPO_DIR/public/img/invoice_templates/codyssey.png"
-  "$REPO_DIR/resources/lang/en-GB/settings.php"
-  "$REPO_DIR/resources/views/components/documents/show/template.blade.php"
-  "$REPO_DIR/resources/views/components/documents/template/codyssey.blade.php"
-  "$REPO_DIR/resources/views/sales/invoices/print_codyssey.blade.php"
-  "$REPO_DIR/resources/views/settings/invoice/edit.blade.php"
-)
-
-for f in "${CODYSSEY_FILES[@]}"; do
-  if [[ -f "$f" ]]; then
-    fix_ownership "$f"
-  else
-    warn "File not found (check rsync): $f"
-  fi
-done
-info "Codyssey file ownership fixed."
-
-# ---------------------------------------------------------------------------
-# Step 7: Install / reinstall AccountantReports module
+# Step 8: Install / reinstall AccountantReports module
 # ---------------------------------------------------------------------------
 section "AccountantReports module install"
 
 if [[ -d "$MODULE_DIR" ]] && [[ -f "$MODULE_REINSTALL_SCRIPT" ]]; then
-  info "Running AccountantReports clean_reinstall.sh..."
   bash "$MODULE_REINSTALL_SCRIPT"
 else
-  if [[ ! -d "$MODULE_DIR" ]]; then
-    warn "Module not found at $MODULE_DIR — skipping. Run deploy.sh first to sync."
-  else
-    warn "clean_reinstall.sh not found at $MODULE_REINSTALL_SCRIPT — skipping."
-  fi
+  warn "Module or reinstall script not found — skipping."
+  [[ -d "$MODULE_DIR" ]] || warn "Module dir: $MODULE_DIR"
+  [[ -f "$MODULE_REINSTALL_SCRIPT" ]] || warn "Script: $MODULE_REINSTALL_SCRIPT"
 fi
 
 # ---------------------------------------------------------------------------
-# Step 8: Clear all caches
+# Step 9: Clear all caches
 # ---------------------------------------------------------------------------
 section "Clearing caches"
 
@@ -216,12 +252,21 @@ info "Caches cleared."
 # ---------------------------------------------------------------------------
 section "Post-upgrade actions complete"
 
+if [[ $PATCH_FAILURES -gt 0 ]]; then
+  echo ""
+  echo "WARNING: $PATCH_FAILURES patch(es) failed to apply."
+  echo "These core files need manual review — see output above."
+  echo "After fixing manually, regenerate the .patch files on your workstation:"
+  echo "  See UPGRADE.md > 'Regenerating patches after a conflict'"
+  echo ""
+fi
+
 echo ""
 echo "Quick verify checklist:"
-echo "  [ ] Print preview (Default/Modern) shows purple (#55588B) header background"
-echo "  [ ] Dashboard: no Bank Feeds promo widget visible"
-echo "  [ ] Logo displays correctly in the top nav"
+echo "  [ ] Print preview (Default/Modern): purple table header"
+echo "  [ ] Dashboard: no Bank Feeds promo widget"
+echo "  [ ] Logo visible in top nav"
 echo "  [ ] Invoice creation: no plan limit warnings"
-echo "  [ ] Settings > Invoices: 'Codyssey' template option visible"
-echo "  [ ] AccountantReports module visible under Reports"
+echo "  [ ] Settings > Invoices: 'Codyssey' template card present"
+echo "  [ ] Reports menu: AccountantReports module visible"
 echo ""

@@ -2,22 +2,15 @@
 # =============================================================================
 # deploy.sh — Codyssey Akaunting: Deploy customizations to a server
 #
-# Run from the LOCAL machine (workstation) after a git rebase/merge.
-# Syncs all Codyssey-specific files to the server, then triggers
-# post-upgrade.sh on the server side.
+# Run from the LOCAL workstation. No git required on any server.
+# Pushes all Codyssey customizations via rsync, then triggers post-upgrade.sh.
 #
 # Usage:
-#   ./scripts/deploy.sh [SERVER]
-#
-# Examples:
-#   ./scripts/deploy.sh                      # uses default DEV server
-#   SERVER=192.168.1.50 ./scripts/deploy.sh  # override server
+#   bash scripts/deploy.sh               # default DEV server
+#   SERVER=10.0.0.5 bash scripts/deploy.sh
 # =============================================================================
 set -Eeuo pipefail
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
 SERVER="${SERVER:-192.168.143.130}"
 SSH_USER="${SSH_USER:-igor}"
 AKAUNTING_REMOTE="/var/www/html/akaunting"
@@ -26,57 +19,61 @@ MODULE_REMOTE="$AKAUNTING_REMOTE/modules/AccountantReports"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 info()    { echo "[INFO]  $*"; }
 section() { echo; echo "=== $* ==="; }
 
 # ---------------------------------------------------------------------------
-# Step 1: Sync Akaunting dev-branch files (git-tracked customizations)
+# Step 1: Sync pure-new Codyssey files (safe to overwrite unconditionally)
 # ---------------------------------------------------------------------------
-section "Syncing Akaunting dev-branch files"
+section "Syncing new Codyssey files"
 
-# Files tracked on the dev branch that differ from upstream master:
-DEV_FILES=(
-  app/Traits/Documents.php
+NEW_FILES=(
   app/View/Components/Documents/Template/Codyssey.php
   public/img/invoice_templates/codyssey.png
-  resources/lang/en-GB/settings.php
-  resources/views/components/documents/show/template.blade.php
   resources/views/components/documents/template/codyssey.blade.php
   resources/views/sales/invoices/print_codyssey.blade.php
-  resources/views/settings/invoice/edit.blade.php
 )
 
 rsync -avz --relative --no-perms --no-owner --no-group \
   --rsync-path="sudo rsync" \
-  "${DEV_FILES[@]}" \
+  "${NEW_FILES[@]}" \
   "$SSH_USER@$SERVER:$AKAUNTING_REMOTE/"
 
-info "Dev-branch files synced."
+info "New files synced."
 
 # ---------------------------------------------------------------------------
-# Step 2: Sync post-upgrade script itself
+# Step 2: Sync patch files for modified core Akaunting files
 # ---------------------------------------------------------------------------
-section "Syncing scripts"
+section "Syncing patch files"
+
+rsync -avz --relative --no-perms --no-owner --no-group \
+  --rsync-path="sudo rsync" \
+  scripts/patches/ \
+  "$SSH_USER@$SERVER:$AKAUNTING_REMOTE/scripts/patches/"
+
+info "Patch files synced."
+
+# ---------------------------------------------------------------------------
+# Step 3: Sync post-upgrade script
+# ---------------------------------------------------------------------------
+section "Syncing post-upgrade.sh"
 
 rsync -avz --relative --no-perms --no-owner --no-group \
   --rsync-path="sudo rsync" \
   scripts/post-upgrade.sh \
   "$SSH_USER@$SERVER:$AKAUNTING_REMOTE/"
 
-# Make sure it's executable on the server
 ssh "$SSH_USER@$SERVER" "sudo chmod +x $AKAUNTING_REMOTE/scripts/post-upgrade.sh"
 
 # ---------------------------------------------------------------------------
-# Step 3: Sync AccountantReports module
+# Step 4: Sync AccountantReports module
 # ---------------------------------------------------------------------------
 section "Syncing AccountantReports module"
 
 if [[ ! -d "$MODULE_LOCAL" ]]; then
-  echo "[WARN] AccountantReports module not found at $MODULE_LOCAL — skipping"
+  echo "[WARN] $MODULE_LOCAL not found — skipping AccountantReports"
 else
   rsync -avz --delete \
     --exclude='.git/' \
@@ -89,7 +86,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4: Run post-upgrade.sh on the server
+# Step 5: Run post-upgrade.sh on server
 # ---------------------------------------------------------------------------
 section "Running post-upgrade.sh on $SERVER"
 

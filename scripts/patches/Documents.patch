@@ -1,0 +1,17 @@
+diff --git a/app/Traits/Documents.php b/app/Traits/Documents.php
+index 21934977e..1876675cd 100644
+--- a/app/Traits/Documents.php
++++ b/app/Traits/Documents.php
+@@ -303,6 +303,12 @@ trait Documents
+                 'image' => asset('public/img/invoice_templates/modern.png'),
+                 'template' => 'modern',
+             ],
++            [
++                'id' => 'codyssey',
++                'name' => trans('settings.invoice.codyssey'),
++                'image' => asset('public/img/invoice_templates/codyssey.png'),
++                'template' => 'codyssey',
++            ],
+         ]);
+ 
+         foreach ($config_templates as $config_template) {

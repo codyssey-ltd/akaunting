@@ -1,0 +1,12 @@
+diff --git a/resources/lang/en-GB/settings.php b/resources/lang/en-GB/settings.php
+index 298733783..ea26fbe90 100644
+--- a/resources/lang/en-GB/settings.php
++++ b/resources/lang/en-GB/settings.php
+@@ -85,6 +85,7 @@ return [
+         'default'                       => 'Default',
+         'classic'                       => 'Classic',
+         'modern'                        => 'Modern',
++        'codyssey'                      => 'Codyssey',
+         'logo_size_width'               => 'Logo Width',
+         'logo_size_height'              => 'Logo Height',
+         'hide' => [

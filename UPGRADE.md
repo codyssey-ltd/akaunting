@@ -1,127 +1,102 @@
 # Akaunting — Upgrade & Fresh Install Procedure
 
-## Overview of customizations
-
-All Codyssey modifications fall into three categories:
-
-| Category | What | How applied |
-|---|---|---|
-| **A — Git** | Codyssey invoice template (8 files on `dev` branch) | `git rebase` after upgrade |
-| **B — Script** | thead color, Bank Feeds promo, logo, Plans.php | `scripts/post-upgrade.sh` |
-| **C — Module** | AccountantReports module | rsync + `clean_reinstall.sh` |
+**No git required on any server.** All server-side work is pure rsync + `patch(1)`.
 
 ---
 
-## Scenario 1: Akaunting version upgrade (in-place)
+## The two-command workflow
 
-### Step 1 — Update upstream code (local)
-
-```bash
-cd /home/igor/Documents/Codyssey/akaunting
-
-git checkout master
-git pull origin master        # get new Akaunting version
-git checkout dev
-git rebase master             # apply our commits on top of new upstream
-# If conflicts → fix manually → git add → git rebase --continue
-```
-
-Commits on `dev` that must survive the rebase:
-- `Add new Codyssey document template and print view for invoices`
-- `Enhance Codyssey template with new styling and title formatting`
-- `Add issued date display and VAT exclusion note to Codyssey template`
-
-### Step 2 — Deploy to server
+After any Akaunting upgrade (regardless of how it was applied on the server):
 
 ```bash
-# Sync all customized files + trigger server-side post-upgrade script
-bash scripts/deploy.sh
-
-# Override server if needed:
-# SERVER=10.0.0.5 bash scripts/deploy.sh
-```
-
-`deploy.sh` does:
-1. rsync Category A files (dev-branch) to server
-2. rsync AccountantReports module to server
-3. SSH → runs `post-upgrade.sh` on the server
-
-### Step 3 — Verify (browser)
-
-- Print preview (Default/Modern): purple `rgb(85,88,139)` table header
-- Dashboard: no "Bank Feeds" promo widget
-- Logo visible in top nav
-- Settings > Invoices: "Codyssey" template card present
-- Create invoice → no plan limit warnings
-- Reports menu: AccountantReports module visible
-
----
-
-## Scenario 2: Fresh installation
-
-### Step 1 — Install Akaunting
-
-Follow the standard Akaunting installation. At the end you should have:
-- A working Akaunting instance at `/var/www/html/akaunting`
-- Web server running as `www-data`
-
-### Step 2 — Checkout Codyssey dev branch
-
-```bash
-cd /home/igor/Documents/Codyssey/akaunting
-git checkout dev              # already has all Category A customizations
-```
-
-### Step 3 — Deploy all customizations
-
-```bash
+# From your LOCAL workstation, in the akaunting repo directory:
 bash scripts/deploy.sh
 ```
 
-### Step 4 — Restore database backup (if applicable)
+That's it. `deploy.sh` handles everything remotely.
 
+To target a different server:
 ```bash
-# See: "Sync Akaunting DB and Files from Production to DEV" KB page
+SERVER=10.0.0.5 bash scripts/deploy.sh
 ```
 
 ---
 
-## Manual reference: what each script does
+## What happens under the hood
 
-### `scripts/deploy.sh` (local machine)
+### `scripts/deploy.sh` (runs locally, no git on server needed)
+
+| Step | What |
+|---|---|
+| 1 | rsync 4 new Codyssey-only files to server |
+| 2 | rsync `scripts/patches/*.patch` to server |
+| 3 | rsync `scripts/post-upgrade.sh` to server |
+| 4 | rsync `modules/AccountantReports/` to server |
+| 5 | SSH → run `post-upgrade.sh` on server |
+
+### `scripts/post-upgrade.sh` (runs on server, no git)
 
 | Step | Action |
 |---|---|
-| 1 | rsync 8 dev-branch files → server |
-| 2 | rsync `scripts/post-upgrade.sh` → server |
-| 3 | rsync AccountantReports module → server |
-| 4 | SSH: run `post-upgrade.sh` on server |
-
-### `scripts/post-upgrade.sh` (server)
-
-| Step | File(s) | Action |
-|---|---|---|
-| 1 | `template/default.blade.php` | Fix `<thead>` background color |
-| 2 | `template/modern.blade.php` | Fix `<thead>` background color |
-| 3 | `widgets/bank_feeds.blade.php` | Comment out promo `@else` block |
-| 4 | `public/img/akaunting-logo-green.svg` | Copy from `/var/backups/akaunting/` |
-| 5 | `app/Traits/Plans.php` | Restore unlimited plan limits from backup |
-| 6 | All 8 Codyssey template files | Fix `www-data` ownership |
-| 7 | `modules/AccountantReports/` | Run `clean_reinstall.sh` (DB + migrate + events) |
-| 8 | — | `php artisan optimize:clear && view:clear` |
+| 1 | Apply 4 `.patch` files to modified core files using `patch -p1` |
+| 2 | Fix `www-data` ownership on all Codyssey files |
+| 3–4 | Inject purple thead color into Default + Modern templates (sed) |
+| 5 | Disable Bank Feeds promo widget (awk) |
+| 6 | Copy logo from `/var/backups/akaunting/` |
+| 7 | Restore `Plans.php` (unlimited plan limits) from backup |
+| 8 | Reinstall AccountantReports module (`clean_reinstall.sh`) |
+| 9 | `php artisan optimize:clear && view:clear` |
 
 ---
 
-## Pre-requisites / backup locations
+## Customization inventory
 
-The following files must exist on the server for the script to work:
+### Category A — New files (safe to rsync unconditionally)
 
-| Backup file | Purpose |
+| File | Description |
+|---|---|
+| `app/View/Components/Documents/Template/Codyssey.php` | PHP component class |
+| `public/img/invoice_templates/codyssey.png` | Template thumbnail |
+| `resources/views/components/documents/template/codyssey.blade.php` | Full template (font, taxable date row, VAT footer) |
+| `resources/views/sales/invoices/print_codyssey.blade.php` | PDF print wrapper |
+
+### Category B — Modified core files (applied via `.patch` files)
+
+| Patch file | Target file | Change |
+|---|---|---|
+| `scripts/patches/Documents.patch` | `app/Traits/Documents.php` | Register Codyssey in template list |
+| `scripts/patches/settings-lang.patch` | `resources/lang/en-GB/settings.php` | Add `'codyssey' => 'Codyssey'` label |
+| `scripts/patches/show-template.patch` | `resources/views/components/documents/show/template.blade.php` | Add `@case('codyssey')` dispatch |
+| `scripts/patches/invoice-edit.patch` | `resources/views/settings/invoice/edit.blade.php` | Add Codyssey settings UI card |
+
+### Category C — Script-applied (sed/awk, no patch file needed)
+
+| File | Change |
+|---|---|
+| `resources/views/components/documents/template/default.blade.php` | `<thead>` background color |
+| `resources/views/components/documents/template/modern.blade.php` | `<thead>` background color |
+| `resources/views/widgets/bank_feeds.blade.php` | Promo block disabled |
+| `public/img/akaunting-logo-green.svg` | Logo restored from `/var/backups/akaunting/` |
+| `app/Traits/Plans.php` | Unlimited plan limits |
+
+### Category D — AccountantReports module
+
+Source: `/home/igor/Documents/Projects/Codyssey/Akaunting/modules/AccountantReports`
+
+Rsynced by `deploy.sh` → reinstalled by `modules/AccountantReports/scripts/clean_reinstall.sh`.
+
+---
+
+## Pre-requisites: backup locations on server
+
+These two files must exist on the server before running `post-upgrade.sh`:
+
+| File on server | Purpose |
 |---|---|
 | `/var/backups/akaunting/public/img/akaunting-logo-green.svg` | Company logo |
 | `/var/backups/akaunting/app/Traits/Plans.php` | Unlimited plan limits |
 
-To update the Plans.php backup after any changes:
+To refresh the `Plans.php` backup after any manual changes:
 ```bash
 sudo cp /var/www/html/akaunting/app/Traits/Plans.php \
         /var/backups/akaunting/app/Traits/Plans.php
@@ -129,12 +104,66 @@ sudo cp /var/www/html/akaunting/app/Traits/Plans.php \
 
 ---
 
+## When a patch fails after an Akaunting upgrade
+
+If `post-upgrade.sh` outputs `PATCH FAILED`, it means Akaunting changed one of
+the modified core files significantly enough that the old patch no longer applies.
+
+### Resolution steps (on LOCAL workstation)
+
+1. **Download the new version of the failed file from the server:**
+   ```bash
+   scp igor@192.168.143.130:/var/www/html/akaunting/app/Traits/Documents.php \
+       /tmp/Documents.php.new
+   ```
+
+2. **Manually apply the change** to the new file (same small addition as before).
+
+3. **Upload the fixed file back:**
+   ```bash
+   rsync --rsync-path="sudo rsync" /tmp/Documents.php.fixed \
+     igor@192.168.143.130:/var/www/html/akaunting/app/Traits/Documents.php
+   ```
+
+4. **Update the local file** in the repo to match the new version + our change:
+   ```bash
+   cp /tmp/Documents.php.fixed app/Traits/Documents.php
+   ```
+
+5. **Regenerate the patch file** (requires git locally — only on the workstation):
+   ```bash
+   # Get the new upstream version
+   git fetch origin master
+   git show origin/master:app/Traits/Documents.php > /tmp/Documents.upstream.php
+
+   # Generate new patch
+   diff -u /tmp/Documents.upstream.php app/Traits/Documents.php \
+     | sed 's|/tmp/Documents.upstream.php|a/app/Traits/Documents.php|' \
+     | sed 's|app/Traits/Documents.php|b/app/Traits/Documents.php|' \
+     > scripts/patches/Documents.patch
+   ```
+
+   Or if you don't use git locally either, generate the patch manually:
+   ```bash
+   diff -u /tmp/Documents.php.new app/Traits/Documents.php > scripts/patches/Documents.patch
+   # Then edit the patch file headers to match the format of the other .patch files
+   ```
+
+6. **Redeploy:**
+   ```bash
+   bash scripts/deploy.sh
+   ```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `View [codyssey] not found` | `show/template.blade.php` reverted | Check Category A files deployed |
-| Grey table header in PDF | Thead fix not applied | Re-run `post-upgrade.sh` |
-| Plan limit warnings | Plans.php reverted to upstream | Check backup path, re-run step 5 |
-| AccountantReports missing | Module sync failed | Check `MODULE_LOCAL` in `deploy.sh` |
-| Wrong file owner (403 errors) | rsync changed ownership | Step 6 of `post-upgrade.sh` fixes this |
+| `PATCH FAILED` in output | Core file changed in upgrade | See "When a patch fails" above |
+| `Already applied` for all patches | Running post-upgrade.sh twice | Normal — idempotent, no action needed |
+| `View [codyssey] not found` | New Codyssey files not rsynced | Run `deploy.sh` first, check rsync output |
+| Grey table header in PDF | Thead sed not applied | Check `sed` output in post-upgrade.sh |
+| Plan limit warnings | Plans.php not restored | Check `/var/backups/akaunting/app/Traits/Plans.php` exists |
+| AccountantReports missing | Module rsync or reinstall failed | Check `MODULE_LOCAL` path in `deploy.sh` |
+| 403 errors / wrong file owner | post-upgrade.sh not run as root | Use `sudo bash scripts/post-upgrade.sh` |
