@@ -1,17 +1,19 @@
 <div class="print-template">
+    @push('css')
+    <style>
+        @font-face {
+            font-family: 'Quicksand';
+            src: url("data:font/ttf;base64,{{ base64_encode(file_get_contents(public_path('vendor/quicksand/fonts/Bold/Quicksand-Bold.ttf'))) }}") format('truetype');
+            font-weight: 700;
+            font-style: normal;
+        }
+        .codyssey-title {
+            font-family: 'Quicksand', sans-serif !important;
+            font-weight: 700 !important;
+        }
+    </style>
+    @endpush
     <div class="row">
-        <div class="col-100">
-            <div class="text text-dark">
-                @stack('title_input_start')
-                <h1 style="font-size: 2.5rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 4px 0; line-height: 1.1;">
-                    {{ $textDocumentTitle }}
-                </h1>
-                @stack('title_input_end')
-            </div>
-        </div>
-    </div>
-
-    <div class="row border-bottom-1">
         <div class="col-58">
             <div class="text">
                 @stack('company_logo_input_start')
@@ -79,6 +81,29 @@
                     @stack('company_email_input_end')
                 @endif
                 @stack('company_details_end')
+            </div>
+        </div>
+    </div>
+
+    <div class="row border-bottom-1" style="margin-bottom: 24pt;">
+        <div class="col-100">
+            <div class="text text-dark" style="text-align: center;">
+                @stack('title_input_start')
+                <div class="codyssey-title" style="
+                    font-size: 38pt;
+                    font-weight: 700;
+                    letter-spacing: 2pt;
+                    line-height: 1;
+                    text-transform: uppercase;
+                    color: rgba(0, 0, 0, 0.25);
+                    margin-top: -15pt;
+                    margin-bottom: 5pt;
+                    -webkit-print-color-adjust: exact;
+                    print-color-adjust: exact;
+                ">
+                    {{ $textDocumentTitle }}
+                </div>
+                @stack('title_input_end')
             </div>
         </div>
     </div>
