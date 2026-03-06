@@ -25,6 +25,16 @@
                     @endif
                 @endif
                 @stack('company_logo_input_end')
+
+                @if ($document->status == 'sent')
+                    <div style="font-size: 28pt; font-weight: 700; letter-spacing: 3pt; text-transform: uppercase; color: rgba(0,0,0,0.10); line-height: 1; margin-top: 4pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                        ORIGINAL
+                    </div>
+                @elseif (in_array($document->status, ['paid', 'partial']))
+                    <div style="font-size: 28pt; font-weight: 700; letter-spacing: 3pt; text-transform: uppercase; color: rgba(0,0,0,0.10); line-height: 1; margin-top: 4pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                        COPY
+                    </div>
+                @endif
             </div>
         </div>
 
@@ -364,6 +374,10 @@
         <div class="col-40 float-right text-right">
             @foreach ($document->totals_sorted as $total)
                 @if ($total->code == 'item_discount')
+                    @continue
+                @endif
+
+                @if ($total->code == 'tax' && $total->amount == 0)
                     @continue
                 @endif
 
