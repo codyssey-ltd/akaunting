@@ -27,11 +27,11 @@
                 @stack('company_logo_input_end')
 
                 @if ($document->status == 'sent')
-                    <div style="font-size: 28pt; font-weight: 700; letter-spacing: 3pt; text-transform: uppercase; color: rgba(0,0,0,0.10); line-height: 1; margin-top: 4pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                    <div class="codyssey-title" style="font-size: 28pt; font-weight: 100; letter-spacing: -1pt; text-transform: uppercase; color: rgba(0,0,0,0.10); line-height: 1; margin-top: -14pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
                         ORIGINAL
                     </div>
                 @elseif (in_array($document->status, ['paid', 'partial']))
-                    <div style="font-size: 28pt; font-weight: 700; letter-spacing: 3pt; text-transform: uppercase; color: rgba(0,0,0,0.10); line-height: 1; margin-top: 4pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                    <div class="codyssey-title" style="font-size: 28pt; font-weight: 100; letter-spacing: -1pt; text-transform: uppercase; color: rgba(0,0,0,0.10); line-height: 1; margin-top: -14pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
                         COPY
                     </div>
                 @endif
