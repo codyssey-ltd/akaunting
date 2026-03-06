@@ -303,6 +303,12 @@ trait Documents
                 'image' => asset('public/img/invoice_templates/modern.png'),
                 'template' => 'modern',
             ],
+            [
+                'id' => 'codyssey',
+                'name' => trans('settings.invoice.codyssey'),
+                'image' => asset('public/img/invoice_templates/codyssey.png'),
+                'template' => 'codyssey',
+            ],
         ]);
 
         foreach ($config_templates as $config_template) {

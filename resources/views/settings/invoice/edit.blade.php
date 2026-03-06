@@ -67,6 +67,19 @@
                             </label>
                         </div>
 
+                        <div class="sm:col-span-2 rounded-lg cursor-pointer text-center py-2 px-2">
+                            <label class="cursor-pointer">
+                                <div @click="form.template='codyssey'" class="flex flex-col items-center">
+                                    <img src="{{ asset('public/img/invoice_templates/codyssey.png') }}" class="h-60 my-3" alt="Codyssey" />
+
+                                    <div class="flex items-center space-x-2 rtl:space-x-reverse">
+                                        <input type="radio" name="template" value="codyssey" v-model="form._template">
+                                        <span> {{ trans('settings.invoice.codyssey') }} </span>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+
                         <x-form.group.color name="color" label="{{ trans('general.color') }}" :value="setting('invoice.color')" />
                     </x-slot>
                 </x-form.section>

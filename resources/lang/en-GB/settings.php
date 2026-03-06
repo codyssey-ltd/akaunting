@@ -85,6 +85,7 @@ return [
         'default'                       => 'Default',
         'classic'                       => 'Classic',
         'modern'                        => 'Modern',
+        'codyssey'                      => 'Codyssey',
         'logo_size_width'               => 'Logo Width',
         'logo_size_height'              => 'Logo Height',
         'hide' => [
