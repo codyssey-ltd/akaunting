@@ -226,6 +226,18 @@
                     @endif
                 @stack('issued_at_input_end')
 
+                    @if (! $hideIssuedAt)
+                        <p class="mb-0">
+                            <span class="font-semibold spacing w-numbers">
+                                {{ trans('Date of the taxable event or advance payment') }}:
+                            </span>
+
+                            <span class="float-right spacing">
+                                @date($document->issued_at)
+                            </span>
+                        </p>
+                    @endif
+
                 @stack('due_at_input_start')
                     @if (! $hideDueAt)
                         <p class="mb-0">
@@ -413,4 +425,14 @@
         @stack('footer_input_end')
         @endif
     @endif
+
+    <div class="row mt-4">
+        <div class="col-100 text-left">
+            <div class="text">
+                <span style="font-size: 6.5pt; color: #555; white-space: nowrap;">
+                    VAT exclusion - "Reverse charge" pursuant to art. 21, paragraph 2 of VAT Act in Bulgaria and арт. 113, paragraph 9 of VAT Act in Bulgaria
+                </span>
+            </div>
+        </div>
+    </div>
 </div>
