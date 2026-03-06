@@ -50,8 +50,8 @@ section "Syncing patch files"
 
 rsync -avz --relative --no-perms --no-owner --no-group \
   --rsync-path="sudo rsync" \
-  scripts/patches/ \
-  "$SSH_USER@$SERVER:$AKAUNTING_REMOTE/scripts/patches/"
+  scripts/patches \
+  "$SSH_USER@$SERVER:$AKAUNTING_REMOTE/"
 
 info "Patch files synced."
 
